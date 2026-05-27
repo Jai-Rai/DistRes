@@ -1,0 +1,23 @@
+PRODUCT SPECIFICATION DOCUMENT
+==============================
+Product Name: Smart Sensor Module SSM-X
+Version: 1.0
+Last Updated: 2025-01-15
+
+DESCRIPTION
+-----------
+The SSM-X is a multi-purpose IoT sensor module designed for industrial
+monitoring environments. It supports temperature, humidity, pressure,
+and vibration sensing.
+
+TECHNICAL PARAMETERS
+--------------------
+- Operating Voltage: 3.3V - 5V DC
+- Operating Temperature: -40C to +85C
+- Communication: MQTT, HTTP, WebSocket
+- Sampling Rate: up to 1 kHz
+- Memory: 256 KB Flash, 64 KB RAM
+
+REVISION NOTES
+--------------
+
