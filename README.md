@@ -9,7 +9,7 @@ change notifications.
 
 ## High-level architecture
 
-![UML Component Diagram](diagrams/component_diagram.png)
+![UML Component Diagram](component_diagram.png)
 
 The system is a classic Client–Server distributed design with two layers
 inside the server:
@@ -26,7 +26,7 @@ that handles the TCP socket plus a background listener thread.
 
 ## Runtime deployment
 
-![UML Deployment Diagram](diagrams/deployment_diagram.png)
+![UML Deployment Diagram](deployment_diagram.png)
 
 Each client machine runs `client.py` and connects to a single server machine
 running `server.py`. The communication path is a TCP/IP socket on port 5050
@@ -37,7 +37,7 @@ socket — no separate broadcast channel is needed.
 
 ## Message flow at a glance
 
-![UML Sequence Diagram](diagrams/sequence_diagram.png)
+![UML Sequence Diagram](sequence_diagram.png)
 
 A complete login → read → write → logout cycle, showing where the
 `ReadWriteLock` is held and which events trigger a pub-sub broadcast.
