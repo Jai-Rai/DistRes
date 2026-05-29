@@ -9,14 +9,14 @@ ARCHITECTURE
 ------------
 Two cooperating classes:
 
-    ServerConnection    -- the network layer. Owns the TCP socket, has a
+    ServerConnection   : the network layer. Owns the TCP socket, has a
                            background listener thread that pushes every
                            parsed message onto a shared Queue.
 
-    DistResClientGUI    -- the presentation layer. Polls the Queue from
+    DistResClientGUI   : the presentation layer. Polls the Queue from
                            the Tk main loop and updates widgets. Tk is
-                           NOT thread-safe so all widget updates MUST run
-                           on the main thread -- the Queue is the bridge.
+                           not thread-safe so all widget updates must run
+                           on the main thread: the Queue is the bridge.
 
 FAULT TOLERANCE
 ---------------
@@ -47,7 +47,7 @@ RETRY_DELAY_S = 1.0         # seconds to wait between failed attempts
 
 
 # ===========================================================================
-# NETWORK LAYER -- TCP socket wrapper with background listener
+# NETWORK LAYER. TCP socket wrapper with background listener
 # ===========================================================================
 class ServerConnection:
     """
@@ -62,7 +62,7 @@ class ServerConnection:
         self.host = host
         self.port = port
         # The GUI passes in a Queue that it polls from the Tk main loop.
-        # All server messages flow through here -- this is the thread-safe
+        # All server messages flow through here. This is the thread-safe
         # bridge between the listener thread and Tkinter widgets.
         self.inbox = inbox
         self.sock: socket.socket | None = None
@@ -79,7 +79,7 @@ class ServerConnection:
         """
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                # Build a fresh socket each attempt -- once a connect()
+                # Build a fresh socket each attempt: once a connect()
                 # has failed the socket is no longer usable.
                 self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.sock.connect((self.host, self.port))
@@ -103,7 +103,7 @@ class ServerConnection:
                                            f"{exc}"})
                 if attempt < MAX_RETRIES:
                     time.sleep(RETRY_DELAY_S)
-        # All attempts exhausted -- surface a hard error to the GUI.
+        # All attempts exhausted: surface a hard error to the GUI.
         self.inbox.put({"type": "LOCAL_ERROR",
                         "message": "Could not reach the server. "
                                    "Is it running?"})
@@ -118,7 +118,7 @@ class ServerConnection:
                 # on the listener thread wakes up immediately.
                 self.sock.shutdown(socket.SHUT_RDWR)
             except OSError:
-                # Already closed -- safe to ignore.
+                # Already closed: safe to ignore.
                 pass
             self.sock.close()
             self.sock = None
@@ -131,7 +131,7 @@ class ServerConnection:
                             "message": "Not connected."})
             return False
         try:
-            # The '\n' is essential -- the server uses it as a frame
+            # The '\n' is essential: the server uses it as a frame
             # delimiter to know where one message ends and the next begins.
             self.sock.sendall((json.dumps(message) + "\n").encode("utf-8"))
             return True
@@ -147,11 +147,11 @@ class ServerConnection:
         Runs in a daemon thread for the lifetime of the connection.
         Reads bytes from the socket, splits them on '\\n' into complete
         JSON messages, and pushes each parsed message onto the inbox
-        queue. Never touches Tk widgets directly -- that would crash Tk
+        queue. Never touches Tk widgets directly: that would crash Tk
         because Tk is not thread-safe.
         """
         # Same buffering pattern as the server: TCP doesn't preserve
-        # message boundaries, so we accumulate until we see a newline.
+        # message boundaries, so bytes are accumulated until a newline appears.
         buffer = b""
         try:
             while self._running and self.sock:
@@ -171,23 +171,23 @@ class ServerConnection:
                         # Drop malformed lines silently; server bug, not ours.
                         pass
         except OSError:
-            # Socket died -- exit the loop and let the finally tidy up.
+            # Socket died: exit the loop and let the finally tidy up.
             pass
         finally:
-            # Tell the GUI we've lost the connection (only sends once).
+            # Tell the GUI the connection was lost (only sent once).
             self.inbox.put({"type": "LOCAL_INFO",
                             "message": "Disconnected from server."})
             self._running = False
 
 
 # ===========================================================================
-# PRESENTATION LAYER -- Tkinter GUI
+# PRESENTATION LAYER. Tkinter GUI
 # ===========================================================================
 class DistResClientGUI:
     """
     The main Tk window. Builds the widgets in three labelled frames
     (connection, file, log) and drives them via a single inbox queue.
-    All UI updates happen on the Tk main thread -- the listener thread
+    All UI updates happen on the Tk main thread: the listener thread
     only enqueues messages, it never touches widgets.
     """
 
@@ -213,9 +213,9 @@ class DistResClientGUI:
         # Build widgets and put the UI into the logged-out state.
         self._build_widgets()
         self._set_logged_out_state()
-        # Schedule the first drain -- this re-arms itself every POLL_MS.
+        # Schedule the first drain: this re-arms itself every POLL_MS.
         self.root.after(self.POLL_MS, self._drain_inbox)
-        # Hook the window-close button so we send a clean LOGOUT first.
+        # Hook the window-close button to send a clean LOGOUT first.
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ---- Widget construction ---------------------------------------------
@@ -253,7 +253,7 @@ class DistResClientGUI:
                                      command=self._on_logout)
         self.logout_btn.grid(row=0, column=5, padx=4, rowspan=2, sticky="ns")
 
-        # Live status label -- shows "Disconnected" / "Logged in as alice"
+        # Live status label: shows "Disconnected" / "Logged in as alice"
         self.status_var = tk.StringVar(value="Disconnected")
         ttk.Label(top, textvariable=self.status_var,
                   foreground="#444").grid(row=0, column=6, rowspan=2,
@@ -285,15 +285,15 @@ class DistResClientGUI:
         bot = ttk.LabelFrame(self.root, text="Pub-Sub Notifications "
                                             "& Activity Log")
         bot.pack(fill="both", expand=True, padx=8, pady=6)
-        # Read-only log -- state="disabled" prevents the user from typing
-        # into it. We flip it to "normal" briefly inside _append_log().
+        # Read-only log: state="disabled" prevents the user from typing
+        # into it. It is flipped to "normal" briefly inside _append_log().
         self.log = scrolledtext.ScrolledText(bot, height=9, wrap="word",
                                              state="disabled")
         self.log.pack(fill="both", expand=True, padx=4, pady=4)
 
     # ---- Button click handlers -------------------------------------------
     def _on_login(self) -> None:
-        """User clicked Login -- open the connection and send LOGIN."""
+        """User clicked Login: open the connection and send LOGIN."""
         if self.logged_in:
             return    # already logged in; ignore double-clicks
         host = self.host_var.get().strip() or SERVER_HOST
@@ -308,26 +308,26 @@ class DistResClientGUI:
         self._append_log(f"Connecting to {host}:{port} ...")
         if not self.conn.connect():
             return     # all retries exhausted; error already logged
-        # Connection up -- send the LOGIN command. The server's reply
+        # Connection up: send the LOGIN command. The server's reply
         # arrives via the inbox queue and is handled in _handle_message.
         self.conn.send({"type": "LOGIN",
                         "username": self.user_var.get().strip(),
                         "password": self.pass_var.get().strip()})
 
     def _on_logout(self) -> None:
-        """User clicked Logout -- send LOGOUT and let the server reply."""
+        """User clicked Logout: send LOGOUT and let the server reply."""
         if not self.logged_in or not self.conn:
             return
         self.conn.send({"type": "LOGOUT"})
 
     def _on_read(self) -> None:
-        """User clicked Read file -- send the READ command."""
+        """User clicked Read file: send the READ command."""
         if self._guard_logged_in():
             self.conn.send({"type": "READ"})
             self._append_log("[REQ] READ sent")
 
     def _on_write(self) -> None:
-        """User clicked Write file -- send the current text area content."""
+        """User clicked Write file: send the current text area content."""
         if not self._guard_logged_in():
             return
         # `get("1.0", "end-1c")` reads everything except the trailing
@@ -341,7 +341,7 @@ class DistResClientGUI:
         self._append_log(f"[REQ] WRITE sent ({len(new_content)} bytes)")
 
     def _on_list_clients(self) -> None:
-        """User clicked List clients -- ask the server who's online."""
+        """User clicked List clients: ask the server who's online."""
         if self._guard_logged_in():
             self.conn.send({"type": "LIST_CLIENTS"})
             self._append_log("[REQ] LIST_CLIENTS sent")
@@ -364,7 +364,7 @@ class DistResClientGUI:
             b.state(["!disabled"])
 
     def _set_logged_out_state(self) -> None:
-        """Initial state -- Login enabled, everything else greyed out."""
+        """Initial state: Login enabled, everything else greyed out."""
         self.logged_in = False
         self.username = None
         self.user_id = None
@@ -379,7 +379,7 @@ class DistResClientGUI:
         """
         Drain every pending message from the inbox queue onto the GUI.
         Called every POLL_MS milliseconds from the Tk main loop. This
-        is the ONLY place network messages cross into Tk territory.
+        is the only place network messages cross into Tk territory.
         """
         try:
             while True:
@@ -387,7 +387,7 @@ class DistResClientGUI:
                 self._handle_message(msg)
         except queue.Empty:
             pass
-        # Re-arm ourselves so we keep draining for as long as Tk runs.
+        # Re-arm so draining continues for as long as Tk runs.
         self.root.after(self.POLL_MS, self._drain_inbox)
 
     def _handle_message(self, msg: dict) -> None:
@@ -407,13 +407,13 @@ class DistResClientGUI:
         # ---- Server replies -------------------------------------------
         elif mtype == "LOGIN_RESULT":
             if msg.get("ok"):
-                # Successful login -- remember the username/ID and unlock buttons.
+                # Successful login: remember the username/ID and unlock buttons.
                 self.username = self.user_var.get().strip()
                 self.user_id = msg.get("user_id")
                 self._set_logged_in_state()
                 self._append_log(f"[LOGIN] {msg.get('message', 'OK')}")
             else:
-                # Bad credentials -- log it, alert the user, drop the socket.
+                # Bad credentials: log it, alert the user, drop the socket.
                 self._append_log(f"[LOGIN FAILED] {msg.get('message', '')}")
                 messagebox.showerror("DistRes",
                                      msg.get("message", "Login failed"))
@@ -452,7 +452,7 @@ class DistResClientGUI:
         # ---- Pub-sub NOTIFY events ------------------------------------
         elif mtype == "NOTIFY":
             # All four event types just show a line in the activity log.
-            # In a richer client we'd update other widgets too (e.g.
+            # In a richer client it would update other widgets too (e.g.
             # auto-refresh on FILE_UPDATED), but the brief asks for the
             # notification to be visible, not auto-applied.
             event = msg.get("event", "?")
@@ -491,8 +491,8 @@ class DistResClientGUI:
 
     def _on_close(self) -> None:
         """
-        Window 'X' button handler. Send a LOGOUT if we're still logged in
-        so the server has a chance to broadcast CLIENT_LEFT before we go.
+        Window 'X' button handler. Send a LOGOUT if still logged in
+        so the server can broadcast CLIENT_LEFT before closing.
         """
         if self.conn:
             try:

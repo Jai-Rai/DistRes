@@ -41,20 +41,20 @@ from datetime import datetime
 # ---------------------------------------------------------------------------
 # Configuration constants
 # ---------------------------------------------------------------------------
-HOST = "0.0.0.0"             # bind to all interfaces so remote clients can reach us
+HOST = "0.0.0.0"             # bind to all interfaces so remote clients can connect
 PORT = 5050                  # TCP port the server listens on
 DB_PATH = "distres_users.db" # SQLite credential store (created by db_setup.py)
 SHARED_FILE = "ProductSpecification.txt"  # the single shared resource
 
 
 # ===========================================================================
-# DATA LAYER -- Read-Write Lock
+# DATA LAYER. Read-Write Lock
 # ===========================================================================
 class ReadWriteLock:
     """
     Concurrency primitive carried over from CW1 (ConRes).
 
-    Permits MANY concurrent readers OR a single exclusive writer at any
+    Permits many concurrent readers or a single exclusive writer at any
     given moment, never a mix. Uses the classic first-reader / last-reader
     pattern: the first reader to arrive "closes the writer gate" on behalf
     of all readers; the last reader to leave reopens it. This avoids the
@@ -67,7 +67,7 @@ class ReadWriteLock:
         self._read_ready = threading.Condition(threading.Lock())
         # Number of readers currently inside read_file(). Guarded by _read_ready.
         self._readers = 0
-        # The "writer gate". Held while any reader is active OR while a writer
+        # The "writer gate". Held while any reader is active or while a writer
         # is active. Acquiring it from acquire_write() therefore blocks until
         # all readers have released it.
         self._writer_lock = threading.Lock()
@@ -76,8 +76,8 @@ class ReadWriteLock:
         """Called by a reader before it touches the shared resource."""
         with self._read_ready:
             self._readers += 1
-            # The FIRST reader to arrive acquires the writer gate on behalf
-            # of the entire reader cohort. Any subsequent reader simply
+            # The first reader to arrive acquires the writer gate on behalf
+            # of all readers. Any later reader simply
             # increments the counter and proceeds without re-acquiring.
             if self._readers == 1:
                 self._writer_lock.acquire()
@@ -86,7 +86,7 @@ class ReadWriteLock:
         """Called by a reader once it's finished with the shared resource."""
         with self._read_ready:
             self._readers -= 1
-            # The LAST reader to leave releases the writer gate, allowing
+            # The last reader to leave releases the writer gate, allowing
             # a waiting writer (if any) to proceed.
             if self._readers == 0:
                 self._writer_lock.release()
@@ -94,7 +94,7 @@ class ReadWriteLock:
     def acquire_write(self) -> None:
         """Called by a writer; blocks until no readers/writers are active."""
         # Acquiring _writer_lock blocks if any reader is inside (because the
-        # first reader holds it) OR if another writer is inside.
+        # first reader holds it) or if another writer is inside.
         self._writer_lock.acquire()
 
     def release_write(self) -> None:
@@ -103,12 +103,12 @@ class ReadWriteLock:
 
 
 # ===========================================================================
-# DATA LAYER -- Authentication + File I/O facade
+# DATA LAYER. Authentication + File I/O facade
 # ===========================================================================
 class DataLayer:
     """
     The Data Layer of the system. The only class allowed to touch the
-    SQLite credential database OR the shared file on disk. Every read/write
+    SQLite credential database or the shared file on disk. Every read/write
     is protected by the ReadWriteLock so concurrent clients can't corrupt
     each other's operations.
 
@@ -122,7 +122,7 @@ class DataLayer:
         self.db_path = db_path           # path to SQLite credentials store
         self.file_path = file_path       # path to the shared resource file
         self.rw_lock = ReadWriteLock()   # one lock guarding the shared file
-        # NOTE: we deliberately do NOT cache a SQLite connection here.
+        # A SQLite connection is not cached here on purpose.
         # `sqlite3` connections are not safe to share across threads in
         # Python, so each call opens its own short-lived connection.
 
@@ -131,14 +131,14 @@ class DataLayer:
         """
         Verify a username/password pair against the SQLite database.
         Returns the user_id (e.g. 'U001') on success, or None on failure.
-        Plain text comparison is deliberate here -- the brief states that
-        security is NOT the focus of this coursework.
+        Plain text comparison is deliberate here: the brief states that
+        security is not the focus of this coursework.
         """
         try:
             # Open a fresh per-thread connection (see __init__ note).
             conn = sqlite3.connect(self.db_path)
             cur = conn.cursor()
-            # Parameterised query -- prevents SQL injection even though the
+            # Parameterised query: prevents SQL injection even though the
             # brief de-prioritises security, this is just good practice.
             cur.execute(
                 "SELECT user_id FROM users WHERE username = ? AND password = ?",
@@ -169,7 +169,7 @@ class DataLayer:
                 return fh.read()
         finally:
             # `finally` guarantees the lock is released even if file I/O
-            # raises an exception -- prevents the system from deadlocking
+            # raises an exception: prevents the system from deadlocking
             # itself on an unexpected failure.
             self.rw_lock.release_read()
 
@@ -182,12 +182,12 @@ class DataLayer:
         """
         self.rw_lock.acquire_write()
         try:
-            # Larger delay than read_file() -- writes are intentionally
+            # Larger delay than read_file(): writes are intentionally
             # heavier than reads so the marker can see writes blocking reads.
             time.sleep(0.6)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             audit_line = f"\n--- Updated by {username} at {timestamp} ---\n"
-            # Open in write mode -- truncates the file, then writes the
+            # Open in write mode: truncates the file, then writes the
             # new content followed by the audit line.
             with open(self.file_path, "w", encoding="utf-8") as fh:
                 fh.write(new_content)
@@ -197,7 +197,7 @@ class DataLayer:
 
 
 # ===========================================================================
-# APPLICATION LAYER -- Publish-Subscribe Manager
+# APPLICATION LAYER. Publish-Subscribe Manager
 # ===========================================================================
 class PubSubManager:
     """
@@ -206,7 +206,7 @@ class PubSubManager:
     events to all of them at once (e.g. when a write happens, every client
     is told about it without having to poll).
 
-    This is THE core of the distributed coordination story for CW2.
+    This class provides the core distributed coordination for CW2.
     """
 
     def __init__(self) -> None:
@@ -230,11 +230,11 @@ class PubSubManager:
     def unsubscribe(self, client_id: str) -> None:
         """
         Remove a client from the subscriber registry. Called on clean
-        logout AND on abrupt disconnect (from the handler's finally block).
+        logout and on abrupt disconnect (from the handler's finally block).
         """
         with self._lock:
             # `.pop` with a default returns None instead of raising KeyError
-            # if the client has already been removed -- which can happen if
+            # if the client has already been removed: which can happen if
             # publish() reaped the socket during a broadcast.
             entry = self._subscribers.pop(client_id, None)
         if entry:
@@ -287,7 +287,7 @@ class PubSubManager:
 
 
 # ===========================================================================
-# APPLICATION LAYER -- the DistRes server itself
+# APPLICATION LAYER: the DistRes server itself
 # ===========================================================================
 class DistResServer:
     """
@@ -299,14 +299,14 @@ class DistResServer:
     def __init__(self, host: str = HOST, port: int = PORT) -> None:
         self.host = host
         self.port = port
-        # Compose the two layers below us.
+        # Compose the two layers beneath the server.
         self.data = DataLayer(DB_PATH, SHARED_FILE)
         self.pubsub = PubSubManager()
         self._server_sock: socket.socket | None = None
         # Stop event: lets future work signal a graceful shutdown.
         self._stop_event = threading.Event()
 
-        # Audit table of currently-connected clients -- used by LIST_CLIENTS
+        # Audit table of currently-connected clients: used by LIST_CLIENTS
         # so the user can see who else is online. Guarded by _state_lock.
         self._state_lock = threading.Lock()
         self._connected_clients: deque = deque()   # (client_id, username, user_id)
@@ -319,7 +319,7 @@ class DistResServer:
         many clients concurrently.
         """
         self._server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # SO_REUSEADDR lets us restart quickly without "Address already in use"
+        # SO_REUSEADDR allows a quick restart without "Address already in use"
         # errors during TIME_WAIT after a previous run.
         self._server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._server_sock.bind((self.host, self.port))
@@ -334,7 +334,7 @@ class DistResServer:
                 # accept() blocks until a client connects. Returns a NEW
                 # socket bound just to that client + the client's address.
                 conn, addr = self._server_sock.accept()
-                # Spawn a daemon thread so we don't wait for it on shutdown.
+                # Spawn a daemon thread so the server need not wait for it on shutdown.
                 t = threading.Thread(
                     target=self._handle_client, args=(conn, addr), daemon=True
                 )
@@ -351,7 +351,7 @@ class DistResServer:
         connection. Reads line-delimited JSON requests from the socket,
         decodes them, hands each one to _dispatch(), and cleans up on exit.
 
-        The try/finally is the cornerstone of the server's fault tolerance:
+        The try/finally block underpins the server's fault tolerance:
         no matter HOW the connection ends (clean logout, network drop,
         unhandled exception in a handler), this thread always unsubscribes
         the client from PubSubManager and closes its socket. Without it, a
@@ -362,9 +362,9 @@ class DistResServer:
         username = None       # populated once the client successfully LOGINs
         print(f"[Server] New connection from {client_id}")
 
-        # TCP doesn't preserve message boundaries -- one recv() may return
-        # a partial JSON object, two objects glued together, etc. We
-        # accumulate bytes in `buffer` and only process complete lines.
+        # TCP doesn't preserve message boundaries: one recv() may return
+        # a partial JSON object, two objects glued together, etc. Bytes are
+        # accumulated in `buffer` and only complete lines are processed.
         buffer = b""
         try:
             while not self._stop_event.is_set():
@@ -385,7 +385,7 @@ class DistResServer:
                     try:
                         msg = json.loads(line.decode("utf-8"))
                     except json.JSONDecodeError:
-                        # Malformed JSON -- tell the client and carry on.
+                        # Malformed JSON: tell the client and carry on.
                         self._reply(conn, {"type": "ERROR",
                                            "message": "Malformed JSON"})
                         continue
@@ -398,14 +398,14 @@ class DistResServer:
 
         except ConnectionResetError:
             # Client process died or network cable yanked. Not an error
-            # we can recover from -- the finally block tidies up.
+            # this is not recoverable; the finally block handles cleanup.
             print(f"[Server] {client_id} disconnected abruptly.")
         except Exception as exc:
             # Catch-all so an unexpected bug in one handler doesn't
             # kill the entire connection thread silently.
             print(f"[Server] Error with {client_id}: {exc}")
         finally:
-            # GUARANTEED cleanup -- regardless of how we exited.
+            # Cleanup always runs, regardless of how the loop exited.
             self.pubsub.unsubscribe(client_id)
             with self._state_lock:
                 # Remove this client from the audit/state table.
@@ -452,12 +452,12 @@ class DistResServer:
         elif cmd == "LIST_CLIENTS":
             self._handle_list_clients(conn)
         elif cmd == "PING":
-            # Lightweight liveness check -- useful for future fault tolerance.
+            # Lightweight liveness check: useful for future fault tolerance.
             self._reply(conn, {"type": "PONG"})
         elif cmd == "LOGOUT":
             self._handle_logout(conn, client_id, current_user)
         else:
-            # Unknown command -- tell the client, don't crash the connection.
+            # Unknown command: tell the client, don't crash the connection.
             self._reply(conn, {"type": "ERROR",
                                "message": f"Unknown command: {cmd}"})
         return None
@@ -475,7 +475,7 @@ class DistResServer:
         user_id = self.data.authenticate(username, password)
 
         if user_id is None:
-            # Bad credentials -- reply with failure and DO NOT subscribe.
+            # Bad credentials: reply with failure and do not subscribe.
             self._reply(conn, {"type": "LOGIN_RESULT", "ok": False,
                                "message": "Invalid credentials."})
             return None
@@ -518,8 +518,8 @@ class DistResServer:
     def _handle_write(self, conn, client_id: str, username: str, msg: dict):
         """
         Overwrite the shared file with the client's content. Broadcasts
-        FILE_UPDATED to every subscriber so they know to refresh -- this
-        is THE pub-sub demo moment for the marker.
+        FILE_UPDATED to every subscriber so they know to refresh: this
+        is the pub-sub demo moment for the marker.
         """
         new_content = msg.get("content", "")
         print(f"[Server] WRITE requested by {username} "
@@ -529,7 +529,7 @@ class DistResServer:
             self.data.write_file(new_content, username)
             self._reply(conn, {"type": "WRITE_RESULT", "ok": True,
                                "message": "File updated."})
-            # Pub-sub broadcast: this is the key event that proves
+            # Pub-sub broadcast: this is the main event that signals
             # distributed coordination is working.
             self.pubsub.publish("FILE_UPDATED",
                                 {"username": username,
